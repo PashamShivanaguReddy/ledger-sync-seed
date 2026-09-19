@@ -45,4 +45,22 @@ class AmountsTest {
     void ignoresAMessageWithNoAmountAtAll() {
         assertEquals(null, Amounts.first("Your Swiggy order is on the way!"));
     }
+
+    @Test
+    void readsIntegerRupeesBeforeBalance() {
+        assertEquals(new BigDecimal("5.00"),
+                Amounts.first("Rs.5 debited from a/c **4821 on 04-07-26 at 07:19 to UPI/WATER CAN. Avl Bal: Rs.92,213.10."));
+    }
+
+    @Test
+    void readsIntegerInrWithCommasAndNoDecimals() {
+        assertEquals(new BigDecimal("18000.00"),
+                Amounts.first("Dear Customer, Acct XX9075 is credited with INR 18,000 on 01/07/2026 21:14. Info: NEFT INWARD SELF. Avl Bal Rs.49,882.25"));
+    }
+
+    @Test
+    void readsIntegerWithSpacePrefix() {
+        assertEquals(new BigDecimal("8000.00"),
+                Amounts.first("Rs 8,000 debited from a/c **4821 on 05-07-26 at 11:00 to IMPS/P2A/PARAG KAPOOR. Avl Bal: Rs.80,071.04"));
+    }
 }
