@@ -1,0 +1,10 @@
+{
+  "discrepancies": [
+    {
+      "account_last4": "4821",
+      "occurred_at": "2026-07-29T17:06:00+05:30",
+      "amount": "7500.00",
+      "note": "Missing transaction in corpus: bank stated balance dropped by 7500.00 between 2026-07-29T11:53:00+05:30 and 2026-07-29T17:06:00+05:30 without an evidencing message."
+    }
+  ]
+}

@@ -16,6 +16,8 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * The store this service has used since it was written: a single relational
@@ -32,7 +34,7 @@ public final class SqlLedgerStore implements LedgerStore, AutoCloseable {
     public SqlLedgerStore(Path dbFile) {
         try {
             this.conn = DriverManager.getConnection(
-                    URL_PREFIX + dbFile.toAbsolutePath() + ";MODE=PostgreSQL", "sa", "");
+                    URL_PREFIX + dbFile.toAbsolutePath(), "sa", "");
         } catch (SQLException e) {
             throw new IllegalStateException(
                     "could not open the ledger database at " + dbFile
@@ -78,18 +80,54 @@ public final class SqlLedgerStore implements LedgerStore, AutoCloseable {
 
     @Override
     public void save(NormalizedTxn t) {
-        try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO ledger(account_last4, occurred_at, direction, amount,"
-                        + " category, merchant, source_message_ids)"
-                        + " VALUES (?,?,?,?,?,?,?)")) {
-            ps.setString(1, t.accountLast4());
-            ps.setString(2, t.occurredAt().toString());
-            ps.setString(3, t.direction().name());
-            ps.setBigDecimal(4, t.amount());
-            ps.setString(5, t.category().name());
-            ps.setString(6, t.merchant());
-            ps.setString(7, String.join(",", t.sourceMessageIds()));
-            ps.executeUpdate();
+        try {
+            long existingId = -1;
+            String existingMsgs = null;
+            try (PreparedStatement check = conn.prepareStatement(
+                    "SELECT id, source_message_ids FROM ledger WHERE account_last4 = ? AND occurred_at = ? AND direction = ? AND amount = ?")) {
+                check.setString(1, t.accountLast4());
+                check.setString(2, t.occurredAt().toString());
+                check.setString(3, t.direction().name());
+                check.setBigDecimal(4, t.amount());
+                try (ResultSet rs = check.executeQuery()) {
+                    if (rs.next()) {
+                        existingId = rs.getLong(1);
+                        existingMsgs = rs.getString(2);
+                    }
+                }
+            }
+
+            if (existingId >= 0) {
+                Set<String> mergedIds = new TreeSet<>();
+                if (existingMsgs != null) {
+                    for (String s : existingMsgs.split(",")) {
+                        if (!s.isBlank()) mergedIds.add(s.trim());
+                    }
+                }
+                mergedIds.addAll(t.sourceMessageIds());
+                try (PreparedStatement upd = conn.prepareStatement(
+                        "UPDATE ledger SET category = ?, merchant = ?, source_message_ids = ? WHERE id = ?")) {
+                    upd.setString(1, t.category().name());
+                    upd.setString(2, t.merchant());
+                    upd.setString(3, String.join(",", mergedIds));
+                    upd.setLong(4, existingId);
+                    upd.executeUpdate();
+                }
+            } else {
+                try (PreparedStatement ps = conn.prepareStatement(
+                        "INSERT INTO ledger(account_last4, occurred_at, direction, amount,"
+                                + " category, merchant, source_message_ids)"
+                                + " VALUES (?,?,?,?,?,?,?)")) {
+                    ps.setString(1, t.accountLast4());
+                    ps.setString(2, t.occurredAt().toString());
+                    ps.setString(3, t.direction().name());
+                    ps.setBigDecimal(4, t.amount());
+                    ps.setString(5, t.category().name());
+                    ps.setString(6, t.merchant());
+                    ps.setString(7, String.join(",", t.sourceMessageIds()));
+                    ps.executeUpdate();
+                }
+            }
         } catch (SQLException e) {
             throw new IllegalStateException("could not save " + t, e);
         }

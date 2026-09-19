@@ -4,7 +4,7 @@ out/
 *.class
 data/*.mv.db
 data/*.trace.db
-submission/
+# submission/
 .idea/
 *.iml
 .DS_Store

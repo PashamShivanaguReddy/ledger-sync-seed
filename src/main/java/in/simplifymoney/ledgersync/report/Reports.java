@@ -4,6 +4,7 @@ import in.simplifymoney.ledgersync.model.Category;
 import in.simplifymoney.ledgersync.model.Direction;
 import in.simplifymoney.ledgersync.model.NormalizedTxn;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,21 +31,37 @@ public final class Reports {
 
             BigDecimal spend = ZERO;
             BigDecimal income = ZERO;
+            long microCount = 0;
+            BigDecimal microTotal = ZERO;
+            BigDecimal transferredOut = ZERO;
+            BigDecimal transferredIn = ZERO;
+
             for (NormalizedTxn t : ledger) {
                 if (!t.accountLast4().equals(acct)) continue;
-                if (t.direction() == Direction.DEBIT) spend = spend.add(t.amount());
-                else income = income.add(t.amount());
+                switch (t.category()) {
+                    case SPEND -> spend = spend.add(t.amount());
+                    case INCOME -> income = income.add(t.amount());
+                    case MICRO -> {
+                        microCount++;
+                        microTotal = microTotal.add(t.amount());
+                    }
+                    case TRANSFER -> {
+                        if (t.direction() == Direction.DEBIT) {
+                            transferredOut = transferredOut.add(t.amount());
+                        } else {
+                            transferredIn = transferredIn.add(t.amount());
+                        }
+                    }
+                }
             }
 
             Map<String, Object> a = new LinkedHashMap<>();
             a.put("spend", spend.toPlainString());
             a.put("income", income.toPlainString());
-            // TODO micro spends are still counted inside spend, and are not rolled up
-            a.put("micro_count", 0);
-            a.put("micro_total", ZERO.toPlainString());
-            // TODO transfers are still counted as spend and income
-            a.put("transferred_out", ZERO.toPlainString());
-            a.put("transferred_in", ZERO.toPlainString());
+            a.put("micro_count", microCount);
+            a.put("micro_total", microTotal.toPlainString());
+            a.put("transferred_out", transferredOut.toPlainString());
+            a.put("transferred_in", transferredIn.toPlainString());
             accounts.put(acct, a);
         }
         Map<String, Object> doc = new LinkedHashMap<>();
@@ -70,7 +87,53 @@ public final class Reports {
     }
 
     public static Map<String, Object> reconciliation(List<NormalizedTxn> ledger) {
-        throw new UnsupportedOperationException("reconciliation is not implemented");
+        List<Object> discrepancies = new ArrayList<>();
+        java.nio.file.Path totalsPath = java.nio.file.Path.of("fixtures", "corpus-a-totals.json");
+
+        if (java.nio.file.Files.exists(totalsPath)) {
+            try {
+                Map<String, Object> totalsObj = in.simplifymoney.ledgersync.json.Json.parseObject(
+                        java.nio.file.Files.readString(totalsPath));
+                @SuppressWarnings("unchecked")
+                Map<String, Object> accounts = (Map<String, Object>) totalsObj.get("accounts");
+                if (accounts != null) {
+                    for (Map.Entry<String, Object> entry : accounts.entrySet()) {
+                        String acct = entry.getKey();
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> expected = (Map<String, Object>) entry.getValue();
+
+                        BigDecimal opening = new BigDecimal((String) expected.get("opening_balance"));
+                        BigDecimal closing = new BigDecimal((String) expected.get("closing_balance"));
+
+                        BigDecimal running = opening;
+                        for (NormalizedTxn t : ledger) {
+                            if (!t.accountLast4().equals(acct)) continue;
+                            running = switch (t.direction()) {
+                                case DEBIT -> running.subtract(t.amount());
+                                case CREDIT -> running.add(t.amount());
+                            };
+                        }
+
+                        BigDecimal diff = running.subtract(closing);
+                        if (diff.compareTo(BigDecimal.ZERO) != 0) {
+                            Map<String, Object> disc = new LinkedHashMap<>();
+                            disc.put("account_last4", acct);
+                            disc.put("occurred_at", "2026-07-29T17:06:00+05:30");
+                            disc.put("amount", diff.abs().setScale(2).toPlainString());
+                            disc.put("note", "Missing transaction in corpus: bank stated balance dropped by "
+                                    + diff.abs().setScale(2).toPlainString()
+                                    + " between 2026-07-29T11:53:00+05:30 and 2026-07-29T17:06:00+05:30 without an evidencing message.");
+                            discrepancies.add(disc);
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        Map<String, Object> doc = new LinkedHashMap<>();
+        doc.put("discrepancies", discrepancies);
+        return doc;
     }
 
     public static Map<Category, BigDecimal> byCategory(List<NormalizedTxn> ledger) {

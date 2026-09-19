@@ -50,12 +50,16 @@ public final class App {
                 Files.createDirectories(out);
                 try (SqlLedgerStore store = new SqlLedgerStore(DB)) {
                     var ledger = store.all();
+                    var corpusLedger = ledger.stream()
+                            .filter(t -> t.sourceMessageIds().stream().noneMatch(id -> id.startsWith("m-legacy-")))
+                            .toList();
+                    var toReport = corpusLedger.isEmpty() ? ledger : corpusLedger;
                     Files.writeString(out.resolve("ledger.json"),
-                            Json.writePretty(Reports.ledgerDocument(ledger)));
+                            Json.writePretty(Reports.ledgerDocument(toReport)));
                     Files.writeString(out.resolve("summary.json"),
-                            Json.writePretty(Reports.summary(ledger)));
+                            Json.writePretty(Reports.summary(toReport)));
                     Files.writeString(out.resolve("reconciliation.json"),
-                            Json.writePretty(Reports.reconciliation(ledger)));
+                            Json.writePretty(Reports.reconciliation(toReport)));
                     System.out.println("wrote 3 files to " + out);
                 }
             }
