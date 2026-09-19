@@ -106,7 +106,7 @@ public final class IngestService {
                 if (a.amount.compareTo(b.amount) != 0) continue;
 
                 long minutesDiff = Math.abs(Duration.between(a.occurredAt, b.occurredAt).toMinutes());
-                if (minutesDiff <= 10 && isTransferMerchant(a.merchant) && isTransferMerchant(b.merchant)) {
+                if (minutesDiff <= 10 && isTransferPair(a.merchant, b.merchant)) {
                     isTransfer[i] = true;
                     isTransfer[j] = true;
                     break;
@@ -146,10 +146,19 @@ public final class IngestService {
         return result;
     }
 
-    private static boolean isTransferMerchant(String merchant) {
-        if (merchant == null) return false;
-        String m = merchant.toUpperCase();
-        return m.contains("PARAG KAPOOR") || m.contains("SELF");
+    private static boolean isTransferPair(String merchA, String merchB) {
+        if (merchA == null || merchB == null) return false;
+        String a = merchA.toUpperCase();
+        String b = merchB.toUpperCase();
+        if (a.equals(b) && (isTransferKeyword(a) || isTransferKeyword(b))) return true;
+        return isTransferKeyword(a) && isTransferKeyword(b);
+    }
+
+    private static boolean isTransferKeyword(String m) {
+        if (m == null) return false;
+        return m.contains("IMPS") || m.contains("NEFT") || m.contains("RTGS")
+                || m.contains("TRANSFER") || m.contains("SELF") || m.contains("P2A")
+                || m.contains("OWN A/C") || m.contains("OWN ACCOUNT");
     }
 
     private static boolean isUpi(String merchant) {
